@@ -1,10 +1,15 @@
 package com.sumit.musicdistinct;
 
 import org.apache.commons.io.FileUtils;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.tika.config.TikaConfig;
+import org.apache.tika.detect.Detector;
 import org.apache.tika.exception.TikaException;
 import org.apache.tika.metadata.Metadata;
+import org.apache.tika.parser.AutoDetectParser;
 import org.apache.tika.parser.ParseContext;
 import org.apache.tika.parser.Parser;
+//import org.apache.tika.parser.mp3.Mp3Parser;
 import org.apache.tika.parser.mp3.Mp3Parser;
 import org.xml.sax.ContentHandler;
 import org.xml.sax.SAXException;
@@ -17,7 +22,7 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.HashSet;
+import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -27,46 +32,52 @@ import java.util.stream.Collectors;
  */
 public class App {
     public static void main(String[] args) {
-        System.out.println("Hello World!");
         long startTime = System.currentTimeMillis();
         if (args.length < 1) {
             System.out.println("empty arguments");
-        } else {
-            String dirLocation = args[0];
-            HashSet<MusicMetadata> musicSet = new HashSet<>();
+        } else if ("copyLeftOnes".equals(args[0])) {
+            String dirLocation = args[1];
             try {
-                List<File> files = Files.list(Paths.get(dirLocation))
+                System.out.println("reading unique song list");
+                final Set<MusicMetadata> uniqueSongList = Collections.unmodifiableSet(Files.walk(Paths.get(dirLocation + "/uniqueSongs/")).filter(Files::isRegularFile).map(Path::toFile).map(App::getMetadata).collect(Collectors.toSet()));
+                System.out.println("total unique song list " + uniqueSongList.size());
+                String newFiles = dirLocation + "\\newSongs";
+                System.out.println("reading new songs");
+                List<MusicMetadata> newSongList = Files.walk(Paths.get(newFiles))
                         .filter(Files::isRegularFile)
-                        .filter(path -> path.toString().endsWith(".mp3"))
-                        .map(Path::toFile).collect(Collectors.toList());
-                for (File file : files) {
-                    Metadata metadata = getMetadata(file);
-                    String fileName = file.getName();
-                    boolean f = false;
-                    if (fileName.equals("72. The Weeknd - Blinding Lights.mp3")) {
-                        System.out.println("72. The Weeknd - Blinding Lights found for :: ");
-                        f = true;
-                    }
-                    if (metadata == null) {
-                        if (f)
-                            System.out.println("its going on null ");
-                        musicSet.add(new MusicMetadata(file, null, fileName));
-                    } else {
-                        if (f)
-                            System.out.println("its going on non null ");
-                        musicSet.add(new MusicMetadata(file, metadata, fileName));
-                    }
-                }
-
-                System.out.println("total music " + musicSet.size());
-                File uniqueDirectory = new File(dirLocation + "/list");
+                        .filter(path -> (StringUtils.lowerCase(path.toString()).endsWith(".mp3") || StringUtils.lowerCase(path.toString()).endsWith(".flac")))
+                        .map(Path::toFile).map(App::getMetadata).distinct().collect(Collectors.toList());
+                System.out.println("total new unique songs " + newSongList.size());
+                System.out.println("comparing unique list with new songs. ");
+                newSongList.removeIf(uniqueSongList::contains);
+                final String directoryName = newFiles + "\\list-" + System.currentTimeMillis();
+                File uniqueDirectory = new File(directoryName);
                 if (uniqueDirectory.mkdir()) {
-                    System.out.println("copying unique songs into /list folder");
-                    for (MusicMetadata metadata : musicSet) {
+                    System.out.format("copying unique songs into %s folder ", directoryName);
+                    for (MusicMetadata metadata : newSongList) {
                         File destination = new File(uniqueDirectory.getPath() + "/" + metadata.getFileName());
                         FileUtils.copyFile(metadata.getFile(), destination);
                     }
-
+                } else System.out.println("directory creation failed");
+            } catch (IOException e) {
+                e.printStackTrace();
+                System.out.println("error processing new songs");
+            }
+        } else {
+            String dirLocation = args[0];
+            try {
+                List<MusicMetadata> metadataList = Files.walk(Paths.get(dirLocation))
+                        .filter(Files::isRegularFile)
+                        .filter(path -> (StringUtils.lowerCase(path.toString()).endsWith(".mp3") || StringUtils.lowerCase(path.toString()).endsWith(".flac")))
+                        .map(Path::toFile).map(App::getMetadata).distinct().collect(Collectors.toList());
+                System.out.println("total music " + metadataList.size());
+                File uniqueDirectory = new File(dirLocation + "/list");
+                if (uniqueDirectory.mkdir()) {
+                    System.out.println("copying unique songs into /list folder");
+                    for (MusicMetadata metadata : metadataList) {
+                        File destination = new File(uniqueDirectory.getPath() + "/" + metadata.getFileName());
+                        FileUtils.copyFile(metadata.getFile(), destination);
+                    }
                 } else System.out.println("directory creation failed");
             } catch (IOException e) {
                 e.printStackTrace();
@@ -76,10 +87,12 @@ public class App {
         System.out.println("total time " + l / 1000 + " seconds viz. " + String.format(java.util.Locale.US, "%.2f", (((float) l) / 60000)) + " minutes.");
     }
 
-    private static Metadata getMetadata(File f) {
-        if (f == null)
-            return null;
+    private static MusicMetadata getMetadata(File f) {
+        String fileName = f.getName();
         try {
+//            TikaConfig config = new TikaConfig("/path/to/tika-config.xml");
+//            Detector detector = config.getDetector();
+//            Parser autoDetectParser = new AutoDetectParser(config);
             InputStream input = new FileInputStream(f);
             ContentHandler handler = new DefaultHandler();
             Metadata metadata = new Metadata();
@@ -88,11 +101,11 @@ public class App {
             ParseContext parseCtx = new ParseContext();
             parser.parse(input, handler, metadata, parseCtx);
             input.close();
-            return metadata;
+            return new MusicMetadata(f, metadata, fileName);
         } catch (IOException | TikaException | SAXException e) {
             System.out.println("exception thrown for " + f.getName());
             e.printStackTrace();
-            return null;
+            return new MusicMetadata(f, null, fileName);
         }
     }
 }

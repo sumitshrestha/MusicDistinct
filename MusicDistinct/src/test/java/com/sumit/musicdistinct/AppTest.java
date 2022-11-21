@@ -3,6 +3,7 @@ package com.sumit.musicdistinct;
 import junit.framework.Test;
 import junit.framework.TestCase;
 import junit.framework.TestSuite;
+import nl.jqno.equalsverifier.EqualsVerifier;
 
 /**
  * Unit test for simple App.
@@ -30,5 +31,9 @@ public class AppTest
      */
     public void testApp() {
         assertTrue(true);
+    }
+
+    public void testEqualsHashCodeContracts() {
+        EqualsVerifier.forClass(MusicMetadata.class).verify();
     }
 }
