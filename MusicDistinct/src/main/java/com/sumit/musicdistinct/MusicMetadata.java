@@ -7,7 +7,7 @@ import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.tika.metadata.Metadata;
 
-import javax.annotation.Nullable;
+//import javax.annotation.Nullable;
 import java.io.File;
 import java.util.*;
 import java.util.regex.Matcher;
@@ -27,10 +27,14 @@ public class MusicMetadata {
     private FileName fileNameInst;
     private Set<String> artistSet;
 
-    public MusicMetadata(File file, @Nullable Metadata metadata, String fileName) {
+    public MusicMetadata(File file, Metadata metadata, String fileName) {
         this.file = file;
         this.fileName = fileName;
-        this.fileNameInst = new FileName(fileName);
+        try {
+            this.fileNameInst = new FileName(fileName);
+        } catch (Exception e) {
+            System.out.println("exception thrown parsing filename " + fileName);
+        }
         if (metadata != null) {
             this.title = metadata.get("title");
             this.artists = metadata.get("xmpDM:artist");
@@ -57,8 +61,11 @@ public class MusicMetadata {
     @Override
     public boolean equals(Object o) {
         boolean compare = compare(o);
-        if (compare)
-            System.out.println("true for " + this.toString() + " vs " + o.toString());
+        if (compare) {
+            MusicMetadata m = (MusicMetadata) o;
+            if (!StringUtils.equals(this.fileName, m.fileName))
+                System.out.println(this.fileName + "|" + m.fileName);
+        }
         return compare;
     }
 
@@ -75,8 +82,9 @@ public class MusicMetadata {
         if (that.areMetadataAllNull()) {
             return compareMetadataWithFileName(that.fileNameInst, this);
         }
-        return Objects.equals(title, that.title)
+        return StringUtils.equals(title, that.title)
                 && this.compareArtists(that)
+                && StringUtils.equals(this.fileNameInst.songTitle, that.fileNameInst.songTitle)
 //                && Objects.equals(composer, that.composer)
 //                && Objects.equals(genre, that.genre)
 //                && Objects.equals(album, that.album)
@@ -155,16 +163,19 @@ public class MusicMetadata {
     }
 
     static class FileName {
+        public static final String pattern3 = "george.ortha@ferialaw.com Feria Tantoco Robeniol Law Offices.mp3";
         private int num;
         private String author;
         private String songTitle;
         private Set<String> artistSet;
 
-        private static final Pattern pattern = Pattern.compile("^(?<number>\\d+)(?: )*(?:-|\\.)(?: )*(?<author>[^-]+)-( )*(?<titleWithFileExtension>.*)$");
+        private static final Pattern pattern1 = Pattern.compile("^(?<number>\\d+)(?: )*(?:-|\\.)(?: )*(?<author>[^-]+)-( )*(?<titleWithFileExtension>.*)$");
+        //        private static final Pattern pattern1 = Pattern.compile("^(?<number>\\d+)(?: )*(?:-|\\.)(?: )*(?<titleWithFileExtension>.*)-( )*(?<author>[^-]+)$");
+        private static final Pattern pattern2 = Pattern.compile("^(?<number>\\d+)\\.*(?: )+(?<titleWithFileExtension>.*)$");
 
         FileName(String fileName) {
             if (StringUtils.isNotBlank(fileName)) {
-                Matcher m = pattern.matcher(fileName);
+                Matcher m = pattern1.matcher(fileName);
                 if (m.matches()) {
                     String number = m.group("number");
                     num = Integer.parseInt(number);
@@ -172,6 +183,19 @@ public class MusicMetadata {
                     String titleWithFileExtension = m.group("titleWithFileExtension");
                     songTitle = titleWithFileExtension.substring(0, titleWithFileExtension.length() - 4);
                     artistSet = MusicMetadata.parseAuthors(author);
+                } else if ((m = pattern2.matcher(fileName)).matches()) {
+                    String titleWithFileExtension = m.group("titleWithFileExtension");
+                    songTitle = titleWithFileExtension.substring(0, titleWithFileExtension.length() - 4);
+                } else if (fileName.startsWith("yt1s.com -")) { // youtube download
+                    songTitle = fileName.substring(12, fileName.length() - 4);
+                } else if (fileName.endsWith(pattern3)) {
+                    int dashIndex = fileName.indexOf('-');
+                    if (dashIndex > -1) {
+                        author = Optional.of(fileName.substring(0, dashIndex)).orElse("").trim();
+                        songTitle = Optional.of(fileName.substring(dashIndex + 1, fileName.length() - pattern3.length() - 1)).orElse("").trim();
+                    }
+                } else { // default
+                    songTitle = fileName.substring(0, fileName.length() - 4);
                 }
             }
         }
@@ -205,7 +229,7 @@ public class MusicMetadata {
             if (this == o) return true;
             if (o == null || getClass() != o.getClass()) return false;
             FileName fileName = (FileName) o;
-            return Objects.equals(author, fileName.author)
+            return StringUtils.equals(songTitle, fileName.songTitle)
                     && this.compareArtists(fileName)
 //                    && Objects.equals(songTitle, fileName.songTitle)
                     ;
@@ -222,7 +246,8 @@ public class MusicMetadata {
         private boolean compareArtists(FileName metadata) {
             if (StringUtils.isEmpty(this.author) && StringUtils.isEmpty(metadata.author))
                 return true;
-
+            if (StringUtils.isEmpty(this.author) || StringUtils.isEmpty(metadata.author))
+                return false;
             Collection<String> commonAuthors = CollectionUtils.intersection(this.artistSet, metadata.artistSet);
             return commonAuthors.size() > 0;
         }
